@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
-	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	"log"
 	"net"
 	"path"
@@ -13,38 +12,45 @@ import (
 	"time"
 
 	"encoding/json"
+
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
 	v1alpha1 "github.com/swatisehgal/resource-topology-exporter/pkg/apis/topocontroller/v1alpha1"
 	"google.golang.org/grpc"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	pb "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	podresourcesapi "k8s.io/kubernetes/pkg/kubelet/apis/podresources/v1alpha1"
+	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	"k8s.io/kubernetes/pkg/kubelet/util"
 )
 
 const (
-	defaultTimeout = 5 * time.Second
-	ns             = "resource-topology-exporter"
+	defaultTimeout             = 5 * time.Second
+	ns                         = "resource-topology-exporter"
+	defaultPodResourcesTimeout = 10 * time.Second
+	defaultPodResourcesMaxSize = 1024 * 1024 * 16 // 16 Mb
 )
 
 type Args struct {
-	CRIEndpointPath string
-	SleepInterval   time.Duration
+	CRIEndpointPath            string
+	PodResourceAPIEndpointPath string
+	SleepInterval              time.Duration
 }
 
-type CRIFinder interface {
+type Finder interface {
 	Run() error
 	GetPodsData() []*PodResourceData
 	GetAllocatedCPUs() []v1alpha1.NUMANodeResource
 	GetAllocatedDevices() []v1alpha1.NUMANodeResource
 }
 
-type criFinder struct {
-	args     Args
-	conn     *grpc.ClientConn
-	client   pb.RuntimeServiceClient
-	podsData []*PodResourceData
+type finder struct {
+	args              Args
+	conn              *grpc.ClientConn
+	client            pb.RuntimeServiceClient
+	podResourceClient podresourcesapi.PodResourcesListerClient
+	podsData          []*PodResourceData
 }
 
 type ContainerInfo struct {
@@ -59,7 +65,7 @@ type ContainerInfo struct {
 	RuntimeSpec    *runtimespec.Spec   `json:"runtimeSpec"`
 }
 
-func (f *criFinder) Run() error {
+func (f *finder) Run() error {
 	err := f.UpdateCRIInfo()
 	if err != nil {
 		return fmt.Errorf("Unable to update CRIInfo: %v", err)
@@ -69,11 +75,11 @@ func (f *criFinder) Run() error {
 	return nil
 }
 
-func (f *criFinder) GetPodsData() []*PodResourceData {
+func (f *finder) GetPodsData() []*PodResourceData {
 	return f.podsData
 }
 
-func (f *criFinder) GetAllocatedCPUs() []v1alpha1.NUMANodeResource {
+func (f *finder) GetAllocatedCPUs() []v1alpha1.NUMANodeResource {
 	allocatedCpusNumaInfo := map[string][]string{}
 	for _, podData := range f.GetPodsData() {
 		podcpusNumaInfo := podData.GetAllocatedCPUs()
@@ -87,7 +93,7 @@ func (f *criFinder) GetAllocatedCPUs() []v1alpha1.NUMANodeResource {
 	return cpuResourceList
 }
 
-func (f *criFinder) GetAllocatedDevices() []v1alpha1.NUMANodeResource {
+func (f *finder) GetAllocatedDevices() []v1alpha1.NUMANodeResource {
 	allocatedDevsNumaInfo := map[string]map[devicePluginResourceName]int{}
 	for _, podData := range f.GetPodsData() {
 		podDevsNumaInfo := podData.GetAllocatedDevices()
@@ -128,8 +134,8 @@ func getCPUResourceList(allocatedCpusNumaInfo map[string][]string) []v1alpha1.NU
 	}
 	return cpuNumaResources
 }
-func NewFinder(args Args) (CRIFinder, error) {
-	finderInstance := &criFinder{args: args}
+func NewFinder(args Args) (Finder, error) {
+	finderInstance := &finder{args: args}
 	addr, dialer, err := getAddressAndDialer(finderInstance.args.CRIEndpointPath)
 	if err != nil {
 		return nil, err
@@ -142,6 +148,25 @@ func NewFinder(args Args) (CRIFinder, error) {
 
 	finderInstance.client = pb.NewRuntimeServiceClient(finderInstance.conn)
 	log.Printf("connected to '%v'!", finderInstance.args.CRIEndpointPath)
+
+	//Get a client for the PodResourcesLister grpc service
+	addr, dialer, err = getAddressAndDialer(finderInstance.args.PodResourceAPIEndpointPath)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultPodResourcesTimeout)
+	defer cancel()
+
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure(), grpc.WithDialer(dialer), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(defaultPodResourcesMaxSize)))
+	if err != nil {
+		return nil, fmt.Errorf("error dialing socket %s: %v", finderInstance.args.PodResourceAPIEndpointPath, err)
+	}
+
+	finderInstance.podResourceClient = podresourcesapi.NewPodResourcesListerClient(conn)
+
+	log.Printf("connected to '%v'!", finderInstance.args.PodResourceAPIEndpointPath)
+
 	return finderInstance, nil
 }
 
@@ -149,7 +174,7 @@ func getAddressAndDialer(endpoint string) (string, func(addr string, timeout tim
 	return util.GetAddressAndDialer(endpoint)
 }
 
-func (f *criFinder) UpdateCRIInfo() error {
+func (f *finder) UpdateCRIInfo() error {
 	var err error
 	log.Printf("Inside Update CRI Info")
 	err = f.updateInfo()
@@ -159,7 +184,7 @@ func (f *criFinder) UpdateCRIInfo() error {
 	return nil
 }
 
-func (f *criFinder) listContainersResponse() (*pb.ListContainersResponse, error) {
+func (f *finder) listContainersResponse() (*pb.ListContainersResponse, error) {
 	log.Printf("ListContainers CRI call\n")
 
 	st := &pb.ContainerStateValue{}
@@ -179,7 +204,7 @@ func (f *criFinder) listContainersResponse() (*pb.ListContainersResponse, error)
 	return ListContResponse, nil
 }
 
-func (f *criFinder) containerStatsResponse(c *pb.Container) (*pb.ContainerStatsResponse, error) {
+func (f *finder) containerStatsResponse(c *pb.Container) (*pb.ContainerStatsResponse, error) {
 	//ContainerStats
 	log.Printf("ContainerStats CRI call\n")
 	ContStatsReq := &pb.ContainerStatsRequest{
@@ -193,7 +218,7 @@ func (f *criFinder) containerStatsResponse(c *pb.Container) (*pb.ContainerStatsR
 	return ContStatsResp, nil
 }
 
-func (f *criFinder) containerStatusResponse(c *pb.Container) (*pb.ContainerStatusResponse, error) {
+func (f *finder) containerStatusResponse(c *pb.Container) (*pb.ContainerStatusResponse, error) {
 	//ContainerStatus
 	log.Printf("ContainerStatus CRI call\n")
 	ContStatusReq := &pb.ContainerStatusRequest{
@@ -208,7 +233,7 @@ func (f *criFinder) containerStatusResponse(c *pb.Container) (*pb.ContainerStatu
 	return ContStatusResp, nil
 }
 
-func (cpf *criFinder) listPodSandBoxResponse() (*pb.ListPodSandboxResponse, error) {
+func (cpf *finder) listPodSandBoxResponse() (*pb.ListPodSandboxResponse, error) {
 	//ListPodSandbox
 	log.Printf(" ListPodSandbox CRI call\n")
 	podState := &pb.PodSandboxStateValue{}
@@ -227,7 +252,7 @@ func (cpf *criFinder) listPodSandBoxResponse() (*pb.ListPodSandboxResponse, erro
 	return PodSbResponse, nil
 }
 
-func (f *criFinder) updateInfo() error {
+func (f *finder) updateInfo() error {
 	//PodSandboxStatus
 	log.Printf("PodSandboxStatus CRI call\n")
 	podSbResponse, err := f.listPodSandBoxResponse()
@@ -270,7 +295,11 @@ func (f *criFinder) updateInfo() error {
 			d, _ := json.Marshal(ci.Config.Devices)
 
 			log.Printf("Config devices %v \n", string(d))
-			devs := getDevices(ci.Config.Envs)
+			//	devs := getDevices(ci.Config.Envs)
+			devs, err := f.getDevices(podSb.Metadata.Name, ContStatusResp.Status.Metadata.Name, ci.Config.Envs)
+			if err != nil {
+				fmt.Errorf("unable to get device information from Pod Resource API %v", devs, err)
+			}
 			setCPU, err := cpuset.Parse(linuxResources.CPU.Cpus)
 			if err != nil {
 				fmt.Errorf("unable to parse %v as CPUSet: %v", linuxResources.CPU.Cpus, err)
@@ -294,19 +323,44 @@ func (f *criFinder) updateInfo() error {
 	return nil
 }
 
-func getDevices(envs []*runtime.KeyValue) map[devicePluginResourceName][]*DeviceInfo {
+func (f *finder) getDevices(podName, containerName string, envs []*runtime.KeyValue) (map[devicePluginResourceName][]*DeviceInfo, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	//Pod Resource API client
+	resp, err := f.podResourceClient.List(ctx, &podresourcesapi.ListPodResourcesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("%v.Get(_) = _, %v", f.podResourceClient, err)
+	}
 	devices := make(map[devicePluginResourceName][]*DeviceInfo)
-	for _, env := range envs {
-		if !strings.HasPrefix(env.Key, "example.com/device") {
+	for _, podResource := range resp.GetPodResources() {
+		if podResource.Name != podName {
 			continue
 		}
-		k := strings.Split(env.Key, "_")
-		devInfo := NewDeviceInfo(k[1], k[2], env.Value)
-		var devPluginName devicePluginResourceName
-		devPluginName = devicePluginResourceName(k[0])
-		devices[devPluginName] = append(devices[devPluginName], devInfo)
+		for _, container := range podResource.GetContainers() {
+			if container.Name != containerName {
+				continue
+			}
+			for _, device := range container.GetDevices() {
+				for _, devId := range device.GetDeviceIds() {
+					for _, env := range envs {
+						if !strings.HasPrefix(env.Key, "example.com/device") {
+							continue
+						}
+						k := strings.Split(env.Key, "_")
+						if devId == k[1] {
+							devInfo := NewDeviceInfo(device.ResourceName, devId, env.Value)
+							var devPluginName devicePluginResourceName
+							devPluginName = devicePluginResourceName(device.ResourceName)
+							devices[devPluginName] = append(devices[devPluginName], devInfo)
+						}
+					}
+				}
+			}
+		}
 	}
-	return devices
+	return devices, nil
 }
 
 func getCPUs(setCPU cpuset.CPUSet) (map[string]string, error) {

@@ -19,12 +19,13 @@ limitations under the License.
 package externalversions
 
 import (
-	versioned "github.com/swatisehgal/resource-topology-exporter/pkg/generated/clientset/versioned"
-	internalinterfaces "github.com/swatisehgal/resource-topology-exporter/pkg/generated/informers/externalversions/internalinterfaces"
-	topocontroller "github.com/swatisehgal/resource-topology-exporter/pkg/generated/informers/externalversions/topocontroller"
 	reflect "reflect"
 	sync "sync"
 	time "time"
+
+	versioned "github.com/swatisehgal/resource-topology-exporter/pkg/generated/clientset/versioned"
+	internalinterfaces "github.com/swatisehgal/resource-topology-exporter/pkg/generated/informers/externalversions/internalinterfaces"
+	topocontroller "github.com/swatisehgal/resource-topology-exporter/pkg/generated/informers/externalversions/topocontroller"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

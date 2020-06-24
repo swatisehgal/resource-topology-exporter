@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"time"
+
 	"github.com/davecgh/go-spew/spew"
 	"github.com/docopt/docopt-go"
 	"github.com/swatisehgal/resource-topology-exporter/pkg/exporter"
 	"github.com/swatisehgal/resource-topology-exporter/pkg/finder"
-	"k8s.io/api/core/v1"
-	"log"
-	"time"
+	v1 "k8s.io/api/core/v1"
 )
 
 const (
@@ -73,6 +74,8 @@ func argsParse(argv []string) (finder.Args, error) {
   -h --help                   Show this screen.
   --cri-path=<path>           CRI Enddpoint file path to use.
                               [Default: /host-run/containerd/containerd.sock]
+  --pod-resource-path=<path>  Pod Resource API Enddpoint file path to use.
+                              [Default: /host-var/lib/kubelet/pod-resources/kubelet.sock]
   --sleep-interval=<seconds>  Time to sleep between updates. [Default: 3s]`,
 		ProgramName,
 		ProgramName,
@@ -83,6 +86,7 @@ func argsParse(argv []string) (finder.Args, error) {
 	var err error
 	// Parse argument values as usable types.
 	args.CRIEndpointPath = arguments["--cri-path"].(string)
+	args.PodResourceAPIEndpointPath = arguments["--pod-resource-path"].(string)
 	args.SleepInterval, err = time.ParseDuration(arguments["--sleep-interval"].(string))
 	if err != nil {
 		return args, fmt.Errorf("invalid --sleep-interval specified: %s", err.Error())

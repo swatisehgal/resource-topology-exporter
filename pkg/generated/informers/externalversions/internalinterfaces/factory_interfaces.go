@@ -19,8 +19,9 @@ limitations under the License.
 package internalinterfaces
 
 import (
-	versioned "github.com/swatisehgal/resource-topology-exporter/pkg/generated/clientset/versioned"
 	time "time"
+
+	versioned "github.com/swatisehgal/resource-topology-exporter/pkg/generated/clientset/versioned"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

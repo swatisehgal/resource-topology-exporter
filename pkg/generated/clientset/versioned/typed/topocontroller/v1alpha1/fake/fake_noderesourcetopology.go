@@ -20,6 +20,7 @@ package fake
 
 import (
 	"context"
+
 	v1alpha1 "github.com/swatisehgal/resource-topology-exporter/pkg/apis/topocontroller/v1alpha1"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"

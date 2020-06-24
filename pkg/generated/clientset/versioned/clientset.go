@@ -20,6 +20,7 @@ package versioned
 
 import (
 	"fmt"
+
 	topocontrollerv1alpha1 "github.com/swatisehgal/resource-topology-exporter/pkg/generated/clientset/versioned/typed/topocontroller/v1alpha1"
 
 	discovery "k8s.io/client-go/discovery"
