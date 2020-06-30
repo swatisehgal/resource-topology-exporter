@@ -3,21 +3,23 @@ module github.com/swatisehgal/resource-topology-exporter
 go 1.13
 
 require (
-	github.com/AlexeyPerevalov/topo-controller v0.0.0-20200615163235-292518588d3f
+	github.com/AlexeyPerevalov/topo-controller v0.0.0-20200615163235-292518588d3f // indirect
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815
+	github.com/fromanirh/cpuset v0.0.0-20200530094055-76ce61745438 // indirect
+	github.com/fromanirh/numalign v0.0.2
 	github.com/opencontainers/runtime-spec v1.0.0
 	google.golang.org/grpc v1.23.1
 	k8s.io/api v0.17.2
-	k8s.io/apiextensions-apiserver v0.0.0
+	k8s.io/apiextensions-apiserver v0.0.0 // indirect
 	k8s.io/apimachinery v0.17.2
 	k8s.io/client-go v0.17.2
-	k8s.io/component-base v0.17.2
+	k8s.io/component-base v0.17.2 // indirect
 	k8s.io/cri-api v0.0.0
-	k8s.io/klog v1.0.0
+	k8s.io/klog v1.0.0 // indirect
 	k8s.io/kubernetes v1.17.2
-	k8s.io/utils v0.0.0-20191114184206-e782cd3c129f
-	sigs.k8s.io/yaml v1.1.0
+	k8s.io/utils v0.0.0-20191114184206-e782cd3c129f // indirect
+	sigs.k8s.io/yaml v1.1.0 // indirect
 )
 
 // The k8s "sub-"packages do not have 'semver' compatible versions. Thus, we
