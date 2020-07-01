@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -33,11 +34,12 @@ type Args struct {
 	SleepInterval   time.Duration
 	Namespace       string
 	SysfsRoot       string
+	ConfigPath      string
 }
 
 type CRIFinder interface {
 	Scan() ([]PodResources, error)
-	Aggregate(allPodRes []PodResources) []v1alpha1.NUMANodeResource
+	Aggregate(podResData []PodResources) []v1alpha1.NUMANodeResource
 }
 
 type criFinder struct {
@@ -48,7 +50,10 @@ type criFinder struct {
 	pciDevs         *pcidev.PCIDevices
 	cpus            *cpus.CPUs
 	cpuID2NUMAID    map[int]int
+	pciAddr2NUMAID  map[string]int
 	perNUMACapacity map[int]map[v1.ResourceName]int64
+	// pciaddr -> resourcename
+	pci2ResourceMap map[string]string
 }
 
 type ContainerInfo struct {
@@ -63,16 +68,48 @@ type ContainerInfo struct {
 	RuntimeSpec    *runtimespec.Spec   `json:"runtimeSpec"`
 }
 
-func NewFinder(args Args) (CRIFinder, error) {
+func makePCI2ResourceMap(numaNodes int, pciDevs *pcidev.PCIDevices, pciResMapConf map[string]string) (map[int]map[v1.ResourceName]int64, map[string]string, map[string]int) {
+	pciAddr2NUMAID := make(map[string]int)
+	pci2Res := make(map[string]string)
+
+	perNUMACapacity := make(map[int]map[v1.ResourceName]int64)
+	for nodeNum := 0; nodeNum < numaNodes; nodeNum++ {
+		perNUMACapacity[nodeNum] = make(map[v1.ResourceName]int64)
+
+		for _, pciDev := range pciDevs.Items {
+			if pciDev.NUMANode() != nodeNum {
+				continue
+			}
+			sriovDev, ok := pciDev.(pcidev.SRIOVDeviceInfo)
+			if !ok {
+				continue
+			}
+
+			if !sriovDev.IsVFn {
+				continue
+			}
+
+			resName, ok := pciResMapConf[sriovDev.ParentFn]
+			if !ok {
+				continue
+			}
+
+			pci2Res[sriovDev.Address()] = resName
+			pciAddr2NUMAID[sriovDev.Address()] = nodeNum
+			perNUMACapacity[nodeNum][v1.ResourceName(resName)]++
+		}
+	}
+	return perNUMACapacity, pci2Res, pciAddr2NUMAID
+}
+
+func NewFinder(args Args, pciResMapConf map[string]string) (CRIFinder, error) {
 	finderInstance := &criFinder{
 		args:            args,
 		perNUMACapacity: make(map[int]map[v1.ResourceName]int64),
 	}
+	var err error
 
-	addr, dialer, err := getAddressAndDialer(finderInstance.args.CRIEndpointPath)
-	if err != nil {
-		return nil, err
-	}
+	// first scan the sysfs
 	// CAUTION: these resources are expected to change rarely - if ever. So we are intentionally do this once during the process lifecycle.
 	finderInstance.cpus, err = cpus.NewCPUs(finderInstance.args.SysfsRoot)
 	if err != nil {
@@ -81,16 +118,6 @@ func NewFinder(args Args) (CRIFinder, error) {
 	log.Printf("detected system CPU map:%s\n", spew.Sdump(finderInstance.cpus.NUMANodeCPUs))
 
 	for nodeNum := 0; nodeNum < finderInstance.cpus.NUMANodes; nodeNum++ {
-		finderInstance.perNUMACapacity[nodeNum] = make(map[v1.ResourceName]int64)
-	}
-
-	finderInstance.cpuID2NUMAID = make(map[int]int)
-	for nodeNum, cpus := range finderInstance.cpus.NUMANodeCPUs {
-		finderInstance.perNUMACapacity[nodeNum][v1.ResourceCPU] = int64(len(cpus))
-
-		for _, cpu := range cpus {
-			finderInstance.cpuID2NUMAID[cpu] = nodeNum
-		}
 	}
 
 	finderInstance.pciDevs, err = pcidev.NewPCIDevices(finderInstance.args.SysfsRoot)
@@ -98,6 +125,33 @@ func NewFinder(args Args) (CRIFinder, error) {
 		return nil, fmt.Errorf("error scanning the system PCI devices: %v", err)
 	}
 	log.Printf("detected system PCI map:%s\n", spew.Sdump(finderInstance.pciDevs))
+
+	// helper maps
+	var pciDevMap map[int]map[v1.ResourceName]int64
+	pciDevMap, finderInstance.pci2ResourceMap, finderInstance.pciAddr2NUMAID = makePCI2ResourceMap(finderInstance.cpus.NUMANodes, finderInstance.pciDevs, pciResMapConf)
+	finderInstance.cpuID2NUMAID = make(map[int]int)
+	for nodeNum, cpus := range finderInstance.cpus.NUMANodeCPUs {
+		for _, cpu := range cpus {
+			finderInstance.cpuID2NUMAID[cpu] = nodeNum
+		}
+	}
+
+	// initialize with the capacities
+	for nodeNum := 0; nodeNum < finderInstance.cpus.NUMANodes; nodeNum++ {
+		finderInstance.perNUMACapacity[nodeNum] = make(map[v1.ResourceName]int64)
+		for resName, count := range pciDevMap[nodeNum] {
+			finderInstance.perNUMACapacity[nodeNum][resName] = count
+		}
+
+		cpus := finderInstance.cpus.NUMANodeCPUs[nodeNum]
+		finderInstance.perNUMACapacity[nodeNum][v1.ResourceCPU] = int64(len(cpus))
+	}
+
+	// now we can connext to CRI
+	addr, dialer, err := getAddressAndDialer(finderInstance.args.CRIEndpointPath)
+	if err != nil {
+		return nil, err
+	}
 
 	finderInstance.conn, err = grpc.Dial(addr, grpc.WithInsecure(), grpc.WithBlock(), grpc.WithTimeout(defaultTimeout), grpc.WithDialer(dialer))
 	if err != nil {
@@ -195,6 +249,15 @@ func (cpf *criFinder) updateNUMAMap(numaData map[int]map[v1.ResourceName]int64, 
 			}
 			numaData[nodeNum][ri.Name]--
 		}
+		return
+	}
+	for _, pciAddr := range ri.Data {
+		nodeNum, ok := cpf.pciAddr2NUMAID[pciAddr]
+		if !ok {
+			// TODO: log
+			continue
+		}
+		numaData[nodeNum][ri.Name]--
 	}
 }
 
@@ -280,7 +343,8 @@ func (f *criFinder) Scan() ([]PodResources, error) {
 				log.Printf("pod %q container %q unable to parse %v as CPUSet: %v", podSb.Metadata.Name, ContStatusResp.Status.Metadata.Name, linuxResources.CPU.Cpus, err)
 				continue
 			}
-			contRes.Resources = append(contRes.Resources, makeCPUResource(cpuList))
+			contRes.Resources = append(contRes.Resources, makeCPUResource(cpuList)...)
+			contRes.Resources = append(contRes.Resources, makePCIDeviceResource(ci.Config.Envs, f.pci2ResourceMap)...)
 
 			log.Printf("pod %q container %q contData=%s\n", podSb.Metadata.Name, ContStatusResp.Status.Metadata.Name, spew.Sdump(contRes))
 			podRes.Containers = append(podRes.Containers, contRes)
@@ -291,7 +355,7 @@ func (f *criFinder) Scan() ([]PodResources, error) {
 	return podResData, nil
 }
 
-func (cpf *criFinder) Aggregate(allPodRes []PodResources) []v1alpha1.NUMANodeResource {
+func (cpf *criFinder) Aggregate(podResData []PodResources) []v1alpha1.NUMANodeResource {
 	var perNumaRes []v1alpha1.NUMANodeResource
 
 	perNuma := make(map[int]map[v1.ResourceName]int64)
@@ -302,7 +366,7 @@ func (cpf *criFinder) Aggregate(allPodRes []PodResources) []v1alpha1.NUMANodeRes
 		}
 	}
 
-	for _, podRes := range allPodRes {
+	for _, podRes := range podResData {
 		for _, contRes := range podRes.Containers {
 			for _, res := range contRes.Resources {
 				cpf.updateNUMAMap(perNuma, res)
@@ -323,30 +387,39 @@ func (cpf *criFinder) Aggregate(allPodRes []PodResources) []v1alpha1.NUMANodeRes
 	return perNumaRes
 }
 
-func makeCPUResource(cpus cpuset.CPUSet) ResourceInfo {
+func makeCPUResource(cpus cpuset.CPUSet) []ResourceInfo {
 	var ret []string
 	for _, cpuID := range cpus.ToSlice() {
 		ret = append(ret, fmt.Sprintf("%d", cpuID))
 	}
-	return ResourceInfo{
-		Name: v1.ResourceCPU,
-		Data: ret,
+	return []ResourceInfo{
+		ResourceInfo{
+			Name: v1.ResourceCPU,
+			Data: ret,
+		},
 	}
 }
 
-/*
-func getDevices(envs []*pb.KeyValue) map[devicePluginResourceName][]*DeviceInfo {
-	devices := make(map[devicePluginResourceName][]*DeviceInfo)
+func makePCIDeviceResource(envs []*pb.KeyValue, pci2ResMap map[string]string) []ResourceInfo {
+	var resInfos []ResourceInfo
 	for _, env := range envs {
-		if !strings.HasPrefix(env.Key, "example.com/device") {
+		if !strings.HasPrefix(env.Key, "PCIDEVICE_") {
 			continue
 		}
-		k := strings.Split(env.Key, "_")
-		devInfo := NewDeviceInfo(k[1], k[2], env.Value)
-		var devPluginName devicePluginResourceName
-		devPluginName = devicePluginResourceName(k[0])
-		devices[devPluginName] = append(devices[devPluginName], devInfo)
+
+		pciAddrs := strings.Split(env.Value, ",")
+		// the assumption here that all the address per variable are bound to the same resource name
+
+		resName, ok := pci2ResMap[pciAddrs[0]]
+		if !ok {
+			continue
+		}
+
+		resInfos = append(resInfos, ResourceInfo{
+			Name: v1.ResourceName(resName),
+			Data: pciAddrs,
+		})
+
 	}
-	return devices
+	return resInfos
 }
-*/
