@@ -115,7 +115,9 @@ func NewFinder(args Args, pciResMapConf map[string]string) (CRIFinder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error scanning the system CPUs: %v", err)
 	}
-	log.Printf("detected system CPU map:%s\n", spew.Sdump(finderInstance.cpus.NUMANodeCPUs))
+	for nodeNum, cpuList := range finderInstance.cpus.NUMANodeCPUs {
+		log.Printf("detected system CPU: NUMA cell %d cpus = %v\n", nodeNum, cpuList)
+	}
 
 	for nodeNum := 0; nodeNum < finderInstance.cpus.NUMANodes; nodeNum++ {
 	}
@@ -124,7 +126,9 @@ func NewFinder(args Args, pciResMapConf map[string]string) (CRIFinder, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error scanning the system PCI devices: %v", err)
 	}
-	log.Printf("detected system PCI map:%s\n", spew.Sdump(finderInstance.pciDevs))
+	for _, pciDev := range finderInstance.pciDevs.Items {
+		log.Printf("detected system PCI device = %s\n", pciDev.String())
+	}
 
 	// helper maps
 	var pciDevMap map[int]map[v1.ResourceName]int64

@@ -30,7 +30,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to read the PCI -> Resource mapping: %v", err)
 	}
-	log.Printf("PCI -> Resource mapping: %+#v\n", pci2ResMap)
+	for pciAddr, resName := range pci2ResMap {
+		log.Printf("PCI -> Resource mapping: %q -> %q\n", pciAddr, resName)
+	}
 
 	// Get new finder instance
 	instance, err := finder.NewFinder(args, pci2ResMap)
@@ -71,7 +73,7 @@ func loadPCI2ResourceMapping(confPath string) (map[string]string, error) {
 	dec := json.NewDecoder(src)
 	// pci address (parent fn) -> resource name
 	pci2ResMap := make(map[string]string)
-	err = dec.Decode(pci2ResMap)
+	err = dec.Decode(&pci2ResMap)
 	return pci2ResMap, err
 }
 
