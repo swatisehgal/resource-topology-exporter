@@ -26,7 +26,7 @@ func main() {
 		log.Fatalf("failed to parse command line: %v", err)
 	}
 
-	pci2ResMap, err := loadPCI2ResourceMapping(args.ConfigPath)
+	pci2ResMap, err := loadPCI2ResourceMapping(args.PCIToResourceMapPath)
 	if err != nil {
 		log.Fatalf("failed to read the PCI -> Resource mapping: %v", err)
 	}
@@ -83,16 +83,16 @@ func argsParse(argv []string) (finder.Args, error) {
 	args := finder.Args{}
 	usage := fmt.Sprintf(`%s.
   Usage:
-  %s [--sleep-interval=<seconds>] [--cri-path=<path>] [--watch-namespace=<namespace>] [--sysfs=<mountpoint>] [--config=<pcimap>]
+  %s [--sleep-interval=<seconds>] [--cri-path=<path>] [--watch-namespace=<namespace>] [--sysfs=<mountpoint>] [--pci-to-resource-map=<pcimap>]
   %s -h | --help
   Options:
-  -h --help                     Show this screen.
-  --cri-path=<path>             CRI Enddpoint file path to use.
-                                [Default: /host-run/containerd/containerd.sock]
-  --sleep-interval=<seconds>    Time to sleep between updates. [Default: 3s]
-  --watch-namespace=<namespace> Namespace to watch pods for. Use "" for all namespaces. [Default: ""]
-  --sysfs=<mountpoint>          Mount point of the sysfs. [Default: /host-sys]
-  --config=<pcimap>             Mapping configuration path. [Default: pcimap.json]`,
+  -h --help                      Show this screen.
+  --cri-path=<path>              CRI Enddpoint file path to use.
+                                 [Default: /host-run/containerd/containerd.sock]
+  --sleep-interval=<seconds>     Time to sleep between updates. [Default: 3s]
+  --watch-namespace=<namespace>  Namespace to watch pods for. Use "" for all namespaces. [Default: ""]
+  --sysfs=<mountpoint>           Mount point of the sysfs. [Default: /host-sys]
+  --pci-to-resource-map=<pcimap> Mapping (pciaddress: resourcename) configuration path. [Default: pcimap.json]`,
 		ProgramName,
 		ProgramName,
 		ProgramName,
@@ -104,7 +104,7 @@ func argsParse(argv []string) (finder.Args, error) {
 	if ns, ok := arguments["--watch-namespace"].(string); ok {
 		args.Namespace = ns
 	}
-	args.ConfigPath = arguments["--config"].(string)
+	args.PCIToResourceMapPath = arguments["--pci-to-resource-map"].(string)
 	args.SysfsRoot = arguments["--sysfs"].(string)
 	args.CRIEndpointPath = arguments["--cri-path"].(string)
 	args.SleepInterval, err = time.ParseDuration(arguments["--sleep-interval"].(string))

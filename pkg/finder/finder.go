@@ -30,11 +30,11 @@ const (
 )
 
 type Args struct {
-	CRIEndpointPath string
-	SleepInterval   time.Duration
-	Namespace       string
-	SysfsRoot       string
-	ConfigPath      string
+	CRIEndpointPath      string
+	SleepInterval        time.Duration
+	Namespace            string
+	SysfsRoot            string
+	PCIToResourceMapPath string
 }
 
 type CRIFinder interface {
