@@ -86,10 +86,10 @@ func parseSRIOVResourceListFromData(data []byte, pciDevs *pcidev.PCIDevices) (PC
 func findPCIAddressFromVendorModel(pciDevs *pcidev.PCIDevices, vendor, device string) []string {
 	var foundDevs []string
 	wantedPCIID := fmt.Sprintf("%s:%s", vendor, device)
-	for _, pciDev := range pciDevs.Items {
-		currentPCIID := fmt.Sprintf("%04x:%04x", pciDev.Vendor(), pciDev.Device())
+	for _, devInfo := range pciDevs.Items {
+		currentPCIID := fmt.Sprintf("%04x:%04x", devInfo.Vendor(), devInfo.Device())
 		if wantedPCIID == currentPCIID {
-			foundDevs = append(foundDevs, findAllVFAddrsFromPFAddr(pciDevs, pciDev.Address())...)
+			foundDevs = append(foundDevs, findAllVFAddrsFromPFAddr(pciDevs, devInfo.Address())...)
 		}
 	}
 	return foundDevs
@@ -98,10 +98,10 @@ func findPCIAddressFromVendorModel(pciDevs *pcidev.PCIDevices, vendor, device st
 // TODO: this search is quite inefficient
 func findAllVFAddrsFromPFAddr(pciDevs *pcidev.PCIDevices, parentFnAddr string) []string {
 	var foundVFs []string
-	for _, pciDev := range pciDevs.Items {
-		if sriovDev, ok := pciDev.(pcidev.SRIOVDeviceInfo); ok {
-			if sriovDev.ParentFn == parentFnAddr {
-				foundVFs = append(foundVFs, sriovDev.Address())
+	for _, devInfo := range pciDevs.Items {
+		if sriovInfo, ok := devInfo.(pcidev.SRIOVDeviceInfo); ok {
+			if sriovInfo.ParentFn == parentFnAddr {
+				foundVFs = append(foundVFs, sriovInfo.Address())
 			}
 		}
 	}
