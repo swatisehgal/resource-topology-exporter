@@ -28,10 +28,10 @@ func GetFromSRIOVConfigFile(sysfsRoot, path string) (PCIResourceMap, error) {
 		return nil, fmt.Errorf("missing configuration data from %q", path)
 	}
 
-	return parseSRIOVResourceListFromData(data, pciDevs)
+	return MakePCIResourceMapFromData(data, pciDevs)
 }
 
-func parseSRIOVResourceListFromData(data []byte, pciDevs *pcidev.PCIDevices) (PCIResourceMap, error) {
+func MakePCIResourceMapFromData(data []byte, pciDevs *pcidev.PCIDevices) (PCIResourceMap, error) {
 	var err error
 
 	resources := &sriovtypes.ResourceConfList{}
