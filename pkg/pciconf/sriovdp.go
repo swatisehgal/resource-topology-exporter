@@ -89,8 +89,21 @@ func findPCIAddressFromVendorModel(pciDevs *pcidev.PCIDevices, vendor, device st
 	for _, pciDev := range pciDevs.Items {
 		currentPCIID := fmt.Sprintf("%04x:%04x", pciDev.Vendor(), pciDev.Device())
 		if wantedPCIID == currentPCIID {
-			foundDevs = append(foundDevs, pciDev.Address())
+			foundDevs = append(foundDevs, findAllVFAddrsFromPFAddr(pciDevs, pciDev.Address())...)
 		}
 	}
 	return foundDevs
+}
+
+// TODO: this search is quite inefficient
+func findAllVFAddrsFromPFAddr(pciDevs *pcidev.PCIDevices, parentFnAddr string) []string {
+	var foundVFs []string
+	for _, pciDev := range pciDevs.Items {
+		if sriovDev, ok := pciDev.(pcidev.SRIOVDeviceInfo); ok {
+			if sriovDev.ParentFn == parentFnAddr {
+				foundVFs = append(foundVFs, sriovDev.Address())
+			}
+		}
+	}
+	return foundVFs
 }
