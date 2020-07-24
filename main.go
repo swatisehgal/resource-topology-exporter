@@ -43,8 +43,12 @@ func main() {
 		log.Fatalf("failed to read the PCI -> Resource mapping: %v", err)
 	}
 
-	// Get new finder instance
-	instance, err := finder.NewFinder(args, pci2ResMap)
+	resAgg, err := finder.NewResourceAggregator(args.SysfsRoot, pci2ResMap)
+	if err != nil {
+		log.Fatalf("Failed to initialize Aggregator instance: %v", err)
+	}
+
+	criFind, err := finder.NewFinder(args, resAgg.GetPCI2ResourceMap())
 	if err != nil {
 		log.Fatalf("Failed to initialize Finder instance: %v", err)
 	}
@@ -55,13 +59,13 @@ func main() {
 	}
 
 	for {
-		podResources, err := instance.Scan()
+		podResources, err := criFind.Scan()
 		if err != nil {
 			log.Printf("CRI scan failed: %v\n", err)
 			continue
 		}
 
-		perNumaResources := instance.Aggregate(podResources)
+		perNumaResources := resAgg.Aggregate(podResources)
 		log.Printf("allocatedResourcesNumaInfo:%v", spew.Sdump(perNumaResources))
 
 		if err = crdExporter.CreateOrUpdate("default", perNumaResources); err != nil {
