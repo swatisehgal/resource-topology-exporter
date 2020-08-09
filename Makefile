@@ -44,7 +44,7 @@ push: image
 	$(RUNTIME) push quay.io/$(REPOOWNER)/$(IMAGENAME):$(IMAGETAG)
 
 .PHONY: deploy
-deploy: push
+deploy:
 	@echo "deploying Resource Topology Exporter"
 	kubectl create -f manifests/resource-topology-exporter-ds.yaml
 
@@ -65,6 +65,6 @@ clean-binaries:
 
 clean: clean-binaries
 	kubectl delete -f manifests/resource-topology-exporter-ds.yaml
-	kubectl delete -f manifests/test-sriov-pod.yaml
-	kubectl delete -f manifests/test-sriov-pod-2.yaml
-	kubectl delete -f manifests/test-sriov-pod-3.yaml
+	# kubectl delete -f manifests/test-sriov-pod.yaml
+	# kubectl delete -f manifests/test-sriov-pod-2.yaml
+	# kubectl delete -f manifests/test-sriov-pod-3.yaml

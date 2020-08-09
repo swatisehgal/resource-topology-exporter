@@ -53,13 +53,18 @@ spec:
       containers:
       - name: resource-topology-exporter-container
         image: quay.io/swsehgal/resource-topology-exporter:latest
+        command:
+        - /usr/local/bin/resource-topology-exporter
+        - --watch-namespace=rte
+        - --cri-path=/host-run/crio/crio.sock
+        - --container-runtime=cri-o
 #        command:
 #        - /usr/local/bin/resource-topology-exporter
 #        - --sleep-interval=1s
-        command:
-        - sleep
-        args:
-        - "1000000"
+        # command:
+        # - sleep
+        # args:
+        # - "1000000"
         volumeMounts:
           - name: host-sys
             mountPath: "/host-sys"
