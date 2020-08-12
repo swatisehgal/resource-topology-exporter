@@ -68,3 +68,8 @@ clean: clean-binaries
 	kubectl delete -f manifests/test-sriov-pod.yaml
 	kubectl delete -f manifests/test-sriov-pod-2.yaml
 	kubectl delete -f manifests/test-sriov-pod-3.yaml
+
+.PHONY: e2e-test
+e2e-test:
+	@echo "Running E2E tests"
+	GOFLAGS=-mod=mod ginkgo --v --keepGoing -r
