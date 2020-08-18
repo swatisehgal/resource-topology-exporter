@@ -55,7 +55,9 @@ var _ = Describe("NodeResources", func() {
 				Expect(err).ToNot(HaveOccurred())
 
 				fmt.Fprintf(GinkgoWriter, "%v\n", nrt)
-
+				cpuValue := node.Status.Allocatable["cpu"]
+				fmt.Fprintf(GinkgoWriter, "cpu resource %v\n",cpuValue )
+				fmt.Fprintf(GinkgoWriter, "sr-iov resource %v\n", node.Status.Allocatable["openshift.io/sriov"])
 				// 3. check the node allocatable is "consistent" with the resources
 			}
 		})
