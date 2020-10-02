@@ -4,6 +4,7 @@ metadata:
   name: pod-1
   namespace: rte
 spec:
+  nodeName: cnfd2-worker-0.fci1.kni.lab.eng.bos.redhat.com
   containers:
   - name: sample-container
     image: quay.io/fromani/numalign

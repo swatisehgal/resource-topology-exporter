@@ -65,6 +65,6 @@ clean-binaries:
 
 clean: clean-binaries
 	kubectl delete -f manifests/resource-topology-exporter-ds.yaml
-	kubectl delete -f manifests/sample-devices/test-pod-deviceA.yaml
-	kubectl delete -f manifests/sample-devices/test-pod-deviceA-2.yaml
-	kubectl delete -f manifests/sample-devices/test-pod-deviceA-3.yaml
+	# kubectl delete -f manifests/sample-devices/test-pod-deviceA.yaml
+	# kubectl delete -f manifests/sample-devices/test-pod-deviceA-2.yaml
+	# kubectl delete -f manifests/sample-devices/test-pod-deviceA-3.yaml
